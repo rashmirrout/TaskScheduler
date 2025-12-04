@@ -1,9 +1,9 @@
 #pragma once
 
-#include "scheduler.h"
-#include "config_parser.h"
-#include "file_watcher.h"
-#include "task_factory.h"
+#include "core/scheduler.h"
+#include "config/config_parser.h"
+#include "config/file_watcher.h"
+#include "tasks/task_factory.h"
 #include <string>
 #include <vector>
 #include <mutex>

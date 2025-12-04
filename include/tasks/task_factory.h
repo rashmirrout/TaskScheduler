@@ -1,7 +1,7 @@
 #pragma once
 
-#include "config_parser.h"
-#include "task_base.h"
+#include "config/config_parser.h"
+#include "core/task_base.h"
 #include <memory>
 
 namespace task_scheduler {

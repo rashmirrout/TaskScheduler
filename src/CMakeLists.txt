@@ -1,13 +1,13 @@
 # Create TaskScheduler library
 add_library(TaskScheduler
-    task_base.cpp
-    scheduler.cpp
-    sensor_task.cpp
-    actuator_task.cpp
-    config_parser.cpp
-    file_watcher.cpp
-    task_factory.cpp
-    config_manager.cpp
+    core/task_base.cpp
+    core/scheduler.cpp
+    tasks/sensor_task.cpp
+    tasks/actuator_task.cpp
+    tasks/task_factory.cpp
+    config/config_parser.cpp
+    config/file_watcher.cpp
+    config/config_manager.cpp
 )
 
 # Include directories

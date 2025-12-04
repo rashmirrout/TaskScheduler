@@ -1,7 +1,7 @@
-#include "scheduler.h"
-#include "config_manager.h"
-#include "sensor_task.h"
-#include "actuator_task.h"
+#include "core/scheduler.h"
+#include "config/config_manager.h"
+#include "tasks/sensor_task.h"
+#include "tasks/actuator_task.h"
 #include <iostream>
 #include <thread>
 #include <chrono>

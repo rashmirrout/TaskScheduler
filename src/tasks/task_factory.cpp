@@ -1,6 +1,6 @@
-#include "task_factory.h"
-#include "sensor_task.h"
-#include "actuator_task.h"
+#include "tasks/task_factory.h"
+#include "tasks/sensor_task.h"
+#include "tasks/actuator_task.h"
 #include <iostream>
 
 namespace task_scheduler {

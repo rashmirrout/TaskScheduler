@@ -1,4 +1,8 @@
-#include "config_manager.h"
+#include "config/config_manager.h"
+#include "core/scheduler.h"
+#include "config/config_parser.h"
+#include "config/file_watcher.h"
+#include "tasks/task_factory.h"
 #include <iostream>
 #include <unordered_set>
 

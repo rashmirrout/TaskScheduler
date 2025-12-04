@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "scheduler.h"
-#include "sensor_task.h"
+#include "core/scheduler.h"
+#include "tasks/sensor_task.h"
 #include <thread>
 #include <chrono>
 

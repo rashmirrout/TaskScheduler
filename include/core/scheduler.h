@@ -1,7 +1,7 @@
 #pragma once
 
-#include "types.h"
-#include "task_base.h"
+#include "core/types.h"
+#include "core/task_base.h"
 #include <string>
 #include <memory>
 #include <unordered_map>

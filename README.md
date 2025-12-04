@@ -22,6 +22,162 @@ A production-ready C++17 task scheduling framework featuring sophisticated state
 - **Zero Busy-Waiting** - Efficient condition variable-based scheduling
 - **Memory Safe** - Smart pointer-based ownership with verified cleanup
 
+## Architecture Overview
+
+### System Architecture
+
+```mermaid
+graph TB
+    subgraph "Application Layer"
+        XML[tasks.xml Configuration]
+        User[User Code]
+    end
+    
+    subgraph "Config Module"
+        ConfigMgr[ConfigManager<br/>Hot-Reload & Sync]
+        Parser[ConfigParser<br/>XML Validation]
+        Watcher[FileWatcher<br/>Change Detection]
+        Factory[TaskFactory<br/>Polymorphic Creation]
+    end
+    
+    subgraph "Core Module - Scheduler"
+        Registry[Task Registry<br/>shared_ptr Ownership]
+        TimerQ[Priority Queue<br/>Time-Ordered]
+        WorkerQ[Worker Queue<br/>FIFO]
+        TimerThread[Timer Thread<br/>Schedule Manager]
+        Workers[Worker Thread Pool<br/>Parallel Execution]
+    end
+    
+    subgraph "Core Module - Tasks"
+        TaskBase[TaskBase<br/>State Machine Logic]
+        SensorTask[SensorTask<br/>Monitoring]
+        ActuatorTask[ActuatorTask<br/>Control]
+    end
+    
+    XML -->|watches| Watcher
+    Watcher -->|triggers| ConfigMgr
+    ConfigMgr -->|parses| Parser
+    Parser -->|creates| Factory
+    Factory -->|instantiates| SensorTask
+    Factory -->|instantiates| ActuatorTask
+    
+    User -->|creates| Registry
+    SensorTask -.inherits.-> TaskBase
+    ActuatorTask -.inherits.-> TaskBase
+    
+    Registry -->|schedules| TimerQ
+    TimerQ -->|ready| TimerThread
+    TimerThread -->|enqueue| WorkerQ
+    WorkerQ -->|execute| Workers
+    Workers -->|run| TaskBase
+    Workers -->|reschedule| TimerQ
+    
+    style ConfigMgr fill:#e1f5ff
+    style Registry fill:#fff4e1
+    style TaskBase fill:#ffe1f5
+    style TimerThread fill:#e1ffe1
+    style Workers fill:#e1ffe1
+```
+
+### Execution Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Scheduler
+    participant Registry
+    participant TimerQueue
+    participant TimerThread
+    participant WorkerQueue
+    participant WorkerThread
+    participant Task
+    
+    User->>Scheduler: createTask("sensor", factory)
+    Scheduler->>Registry: store shared_ptr
+    Scheduler->>TimerQueue: schedule(task, nextTime)
+    
+    Note over TimerThread: Sleeps until nextTime
+    
+    TimerThread->>TimerQueue: pop() when ready
+    TimerThread->>Task: isActive()?
+    Task-->>TimerThread: true
+    TimerThread->>WorkerQueue: enqueue(task)
+    TimerThread->>WorkerThread: notify_one()
+    
+    WorkerThread->>WorkerQueue: dequeue()
+    WorkerThread->>Task: run()
+    
+    Note over Task: State Machine<br/>Execution
+    
+    Task->>Task: plan()
+    Task->>Task: processChannels()
+    Task-->>WorkerThread: complete
+    
+    WorkerThread->>TimerQueue: reschedule(task)
+    
+    Note over TimerThread: Cycle repeats
+```
+
+### State Machine Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> Inactive
+    
+    Inactive --> Accumulating: plan() returns true
+    Accumulating --> Inactive: plan() returns false<br/>(instant reset)
+    Accumulating --> Accumulating: plan() returns true<br/>(counter++)
+    Accumulating --> Active: counter >= tolerance<br/>& gate open
+    
+    Active --> HeartbeatCheck: plan() returns true<br/>& gate open
+    HeartbeatCheck --> Active: delta < repeat
+    HeartbeatCheck --> ReFireHeartbeat: delta >= repeat
+    ReFireHeartbeat --> Active: fire signal/action<br/>snap-back counter
+    
+    Active --> Inactive: plan() returns false<br/>OR gate closed
+    
+    note right of Inactive
+        counter = 0
+        isActive = false
+    end note
+    
+    note right of Active
+        counter >= tolerance
+        isActive = true
+    end note
+    
+    note right of ReFireHeartbeat
+        Periodic re-activation
+        Maintains steady state
+    end note
+```
+
+### Hot-Reload Workflow
+
+```mermaid
+flowchart LR
+    A[Edit tasks.xml] --> B{FileWatcher<br/>Detects Change}
+    B --> C[Start Debounce Timer]
+    C --> D{More Changes?}
+    D -->|Yes| C
+    D -->|No, after<br/>debounce window| E[Parse XML]
+    E --> F{Valid?}
+    F -->|No| G[Keep Current Config]
+    F -->|Yes| H[Three-Way Diff]
+    H --> I[Stop Removed Tasks]
+    H --> J[Update Changed Tasks<br/>Preserve State!]
+    H --> K[Create New Tasks]
+    I --> L[Tasks Running<br/>with New Config]
+    J --> L
+    K --> L
+    G -.logs error.-> M[Console Output]
+    L --> M
+    
+    style E fill:#e1f5ff
+    style H fill:#fff4e1
+    style L fill:#e1ffe1
+```
+
 ## Project Structure
 
 The project follows a modular architecture with clear separation of concerns:

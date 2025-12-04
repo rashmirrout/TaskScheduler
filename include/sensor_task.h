@@ -14,13 +14,10 @@ class SensorTask : public TaskBase {
 public:
     /**
      * @brief Constructor
-     * @param name Task identifier
-     * @param intervalMs Execution interval
+     * @param config Task configuration
      * @param threshold Sensor reading threshold for activation
      */
-    SensorTask(const std::string& name, 
-               int intervalMs,
-               double threshold = 50.0);
+    SensorTask(const TaskConfig& config, double threshold = 50.0);
 
     // Override abstract methods
     PlanResult plan() override;

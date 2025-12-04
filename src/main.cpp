@@ -23,12 +23,17 @@ int main() {
     {
         // Create SensorTask inside this scope
         scheduler.createTask("SensorA", []() {
-            return std::make_shared<SensorTask>("SensorA", 1000, 50.0);
+            return std::make_shared<SensorTask>(
+                TaskConfig{"SensorA", 1000, 10, 0, true, 10, 0, true},
+                50.0
+            );
         });
 
         // Create ActuatorTask inside this scope
         scheduler.createTask("ActuatorA", []() {
-            return std::make_shared<ActuatorTask>("ActuatorA", 800);
+            return std::make_shared<ActuatorTask>(
+                TaskConfig{"ActuatorA", 800, 10, 0, true, 10, 0, true}
+            );
         });
 
         std::cout << "   Tasks created. Exiting scope in 2 seconds...\n";

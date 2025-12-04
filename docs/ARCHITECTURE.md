@@ -1771,6 +1771,193 @@ The design successfully solves all identified problems while maintaining simplic
 
 ---
 
+## Default Configuration Values
+
+When creating a task, if you don't specify all configuration parameters explicitly, the framework uses these defaults:
+
+### Constructor Signature
+
+```cpp
+TaskBase::TaskBase(const std::string& name,
+                   int intervalMs,
+                   int sigTolerance = 10,        // DEFAULT
+                   int sigRepeat = 0,            // DEFAULT
+                   int actTolerance = 10,        // DEFAULT
+                   int actRepeat = 0)            // DEFAULT
+```
+
+### Default Values Table
+
+| Parameter | Default Value | Description |
+|-----------|---------------|-------------|
+| `intervalMs` | **Required** | Execution interval in milliseconds (must be provided) |
+| `sigTolerance` | **10** | Signal channel requires 10 consecutive "true" plans to activate |
+| `sigRepeat` | **0** | Signal is single-shot (no heartbeat/periodic re-firing) |
+| `allowSignal` | **true** | Signal channel gate is always open (hardcoded in constructor) |
+| `actTolerance` | **10** | Action channel requires 10 consecutive "true" plans to activate |
+| `actRepeat` | **0** | Action is single-shot (no heartbeat/periodic re-firing) |
+| `allowAction` | **true** | Action channel gate is always open (hardcoded in constructor) |
+
+### What These Defaults Mean
+
+#### Signal Channel Behavior
+- **Debouncing**: Requires 10 consecutive execution cycles with `wantSignal = true` before activating
+- **Activation**: Fires `signal(true)` once when threshold met
+- **No Heartbeat**: Since `sigRepeat = 0`, signal fires only once (single-shot)
+- **Deactivation**: Drops immediately on first `wantSignal = false`
+- **Safety**: Gate always open (`allowSignal = true`)
+
+#### Action Channel Behavior
+- **Debouncing**: Requires 10 consecutive execution cycles with `wantAct = true` before activating
+- **Activation**: Fires `act(true)` once when threshold met
+- **No Heartbeat**: Since `actRepeat = 0`, action fires only once (single-shot)
+- **Deactivation**: Drops immediately on first `wantAct = false`
+- **Safety**: Gate always open (`allowAction = true`)
+
+### Timing Examples
+
+**Example 1: Default Configuration**
+```
+intervalMs = 100ms
+sigTolerance = 10 (default)
+
+Minimum activation time = 10 cycles × 100ms = 1000ms (1 second)
+Behavior: Must receive 10 consecutive "true" plans over 1 second to activate
+```
+
+**Example 2: Faster Activation**
+```
+intervalMs = 50ms
+sigTolerance = 5 (custom)
+
+Minimum activation time = 5 cycles × 50ms = 250ms
+Behavior: Activates in quarter-second with sustained signal
+```
+
+**Example 3: With Heartbeat**
+```
+intervalMs = 100ms
+sigTolerance = 10 (default)
+sigRepeat = 5 (custom - enables heartbeat)
+
+Activation: After 1 second (10 × 100ms)
+Heartbeat: Every 500ms (5 × 100ms) while active
+```
+
+### How Defaults Are Applied
+
+#### Creating Task with Defaults
+
+```cpp
+// Using SensorTask with only required parameters
+auto sensor = std::make_shared<SensorTask>("sensor1", 100);
+
+// Internally calls TaskBase constructor:
+// TaskBase("sensor1", 100, 10, 0, 10, 0)
+//                          ↑   ↑  ↑   ↑
+//                          |   |  |   └─ actRepeat = 0
+//                          |   |  └───── actTolerance = 10
+//                          |   └──────── sigRepeat = 0
+//                          └──────────── sigTolerance = 10
+```
+
+#### Creating Task with Custom Configuration
+
+```cpp
+// Override defaults in derived class constructor
+auto sensor = std::make_shared<SensorTask>(
+    "sensor1", 
+    100,      // intervalMs
+    5,        // sigTolerance (stricter)
+    3         // sigRepeat (3-cycle heartbeat)
+);
+```
+
+#### Updating Configuration After Creation
+
+```cpp
+// Method 1: Update using TaskConfig struct
+scheduler.updateTask("sensor1", TaskConfig{
+    100,      // intervalMs
+    5,        // sigTolerance
+    3,        // sigRepeat
+    true,     // allowSignal
+    10,       // actTolerance
+    0,        // actRepeat
+    false     // allowAction (disable action channel)
+});
+
+// Method 2: Update using individual parameters
+scheduler.updateTask("sensor1",
+    100,      // intervalMs
+    5,        // sigTolerance
+    3,        // sigRepeat
+    true,     // allowSignal
+    10,       // actTolerance
+    0,        // actRepeat
+    false);   // allowAction
+```
+
+### Design Rationale for Defaults
+
+**Why tolerance = 10?**
+- Provides strong noise immunity
+- Balances between responsiveness and stability
+- Works well for most sensor/control applications at 100ms intervals
+
+**Why repeat = 0?**
+- Single-shot is safer default (no unexpected periodic firing)
+- User must explicitly enable heartbeat for continuous operation
+- Prevents flooding from forgotten tasks
+
+**Why gates = true?**
+- Convenience: channels work immediately without configuration
+- Safety gates should be deliberately closed, not accidentally left closed
+- Matches principle of least surprise
+
+### Common Configuration Patterns
+
+#### Pattern 1: Fast Response Sensor
+```cpp
+TaskConfig{
+    50,       // 50ms interval
+    3,        // Quick activation (150ms)
+    0,        // Single-shot
+    true,     // Allow signal
+    10,       // Standard action debounce
+    0,        // Single-shot action
+    true      // Allow action
+}
+```
+
+#### Pattern 2: Stable Control Loop
+```cpp
+TaskConfig{
+    100,      // 100ms interval
+    20,       // Very stable (2 second debounce)
+    10,       // 1-second heartbeat
+    true,     // Allow signal
+    20,       // Stable action
+    10,       // 1-second action heartbeat
+    true      // Allow action
+}
+```
+
+#### Pattern 3: Signal-Only Task
+```cpp
+TaskConfig{
+    200,      // 200ms interval
+    5,        // Moderate debounce
+    0,        // Single-shot
+    true,     // Allow signal
+    999,      // Action effectively disabled
+    0,        // No heartbeat
+    false     // Block action channel
+}
+```
+
+---
+
 ## Appendix: Quick Reference
 
 ### Configuration Parameters

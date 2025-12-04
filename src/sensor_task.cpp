@@ -5,10 +5,8 @@
 
 namespace task_scheduler {
 
-SensorTask::SensorTask(const std::string& name, 
-                       int intervalMs,
-                       double threshold)
-    : TaskBase(name, intervalMs)
+SensorTask::SensorTask(const TaskConfig& config, double threshold)
+    : TaskBase(config)
     , sensorValue_(0.0)
     , threshold_(threshold)
 {

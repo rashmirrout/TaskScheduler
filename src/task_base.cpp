@@ -2,15 +2,10 @@
 
 namespace task_scheduler {
 
-TaskBase::TaskBase(const std::string& name,
-                   int intervalMs,
-                   int sigTolerance,
-                   int sigRepeat,
-                   int actTolerance,
-                   int actRepeat)
-    : name_(name)
+TaskBase::TaskBase(const TaskConfig& config)
+    : name_(config.taskName)
     , active_(true)
-    , config_{intervalMs, sigTolerance, sigRepeat, true, actTolerance, actRepeat, true}
+    , config_(config)
     , sigCounter_(0)
     , isSignaled_(false)
     , actCounter_(0)

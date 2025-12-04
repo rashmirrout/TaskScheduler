@@ -22,6 +22,7 @@ struct PlanResult {
  * Used to minimize critical section in run() method
  */
 struct TaskConfig {
+    std::string taskName; // Task identifier
     int intervalMs;
     
     // Signal channel configuration

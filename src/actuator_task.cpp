@@ -5,8 +5,8 @@
 
 namespace task_scheduler {
 
-ActuatorTask::ActuatorTask(const std::string& name, int intervalMs)
-    : TaskBase(name, intervalMs)
+ActuatorTask::ActuatorTask(const TaskConfig& config)
+    : TaskBase(config)
     , commandEnabled_(false)
     , actionCount_(0)
 {

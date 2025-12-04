@@ -21,7 +21,9 @@ protected:
 
 TEST_F(ConfigUpdatesTest, UpdateInterval) {
     scheduler->createTask("TestTask", []() {
-        return std::make_shared<SensorTask>("TestTask", 1000);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"TestTask", 1000, 10, 0, true, 10, 0, true}
+        );
     });
 
     auto task = scheduler->getTask("TestTask");
@@ -38,7 +40,9 @@ TEST_F(ConfigUpdatesTest, UpdateNonexistentTask) {
 }
 
 TEST_F(ConfigUpdatesTest, UpdateTolerance) {
-    auto sensor = std::make_shared<SensorTask>("TestTask", 100);
+    auto sensor = std::make_shared<SensorTask>(
+        TaskConfig{"TestTask", 100, 10, 0, true, 10, 0, true}
+    );
     sensor->setSensorValue(100.0);  // Above threshold
 
     scheduler->createTask("TestTask", [sensor]() {
@@ -58,7 +62,9 @@ TEST_F(ConfigUpdatesTest, UpdateTolerance) {
 }
 
 TEST_F(ConfigUpdatesTest, UpdateGates) {
-    auto sensor = std::make_shared<SensorTask>("TestTask", 100);
+    auto sensor = std::make_shared<SensorTask>(
+        TaskConfig{"TestTask", 100, 10, 0, true, 10, 0, true}
+    );
     sensor->setSensorValue(100.0);
 
     scheduler->createTask("TestTask", [sensor]() {
@@ -78,7 +84,9 @@ TEST_F(ConfigUpdatesTest, UpdateGates) {
 }
 
 TEST_F(ConfigUpdatesTest, UpdateRepeat) {
-    auto sensor = std::make_shared<SensorTask>("TestTask", 50);
+    auto sensor = std::make_shared<SensorTask>(
+        TaskConfig{"TestTask", 50, 10, 0, true, 10, 0, true}
+    );
     sensor->setSensorValue(100.0);
 
     scheduler->createTask("TestTask", [sensor]() {
@@ -99,7 +107,9 @@ TEST_F(ConfigUpdatesTest, UpdateRepeat) {
 
 TEST_F(ConfigUpdatesTest, ConcurrentUpdates) {
     scheduler->createTask("TestTask", []() {
-        return std::make_shared<SensorTask>("TestTask", 100);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"TestTask", 100, 10, 0, true, 10, 0, true}
+        );
     });
 
     // Multiple threads updating config
@@ -125,7 +135,9 @@ TEST_F(ConfigUpdatesTest, ConcurrentUpdates) {
 }
 
 TEST_F(ConfigUpdatesTest, UpdateWhileRunning) {
-    auto sensor = std::make_shared<SensorTask>("TestTask", 50);
+    auto sensor = std::make_shared<SensorTask>(
+        TaskConfig{"TestTask", 50, 10, 0, true, 10, 0, true}
+    );
     sensor->setSensorValue(100.0);
 
     scheduler->createTask("TestTask", [sensor]() {

@@ -9,7 +9,7 @@ using namespace task_scheduler;
 class MockTask : public TaskBase {
 public:
     MockTask(const std::string& name, int intervalMs)
-        : TaskBase(name, intervalMs, 10, 0, 10, 0)  // tolerance=10, no repeat
+        : TaskBase(TaskConfig{name, intervalMs, 10, 0, true, 10, 0, true})  // tolerance=10, no repeat
         , planSignal_(false)
         , planAct_(false)
         , signalActivations_(0)

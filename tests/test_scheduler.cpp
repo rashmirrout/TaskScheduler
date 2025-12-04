@@ -26,7 +26,9 @@ TEST_F(SchedulerTest, InitializationAndShutdown) {
 
     // Add tasks
     scheduler->createTask("Task1", []() {
-        return std::make_shared<SensorTask>("Task1", 100);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"Task1", 100, 10, 0, true, 10, 0, true}
+        );
     });
 
     EXPECT_EQ(scheduler->getTaskCount(), 1);
@@ -37,7 +39,9 @@ TEST_F(SchedulerTest, InitializationAndShutdown) {
 }
 
 TEST_F(SchedulerTest, TaskSchedulingTiming) {
-    auto actuator = std::make_shared<ActuatorTask>("TimingTask", 100);
+    auto actuator = std::make_shared<ActuatorTask>(
+        TaskConfig{"TimingTask", 100, 10, 0, true, 10, 0, true}
+    );
     actuator->setCommand(true);
 
     auto startTime = std::chrono::steady_clock::now();
@@ -61,15 +65,21 @@ TEST_F(SchedulerTest, TaskSchedulingTiming) {
 TEST_F(SchedulerTest, PriorityQueueOrdering) {
     // Create tasks with different intervals
     scheduler->createTask("Fast", []() {
-        return std::make_shared<SensorTask>("Fast", 50);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"Fast", 50, 10, 0, true, 10, 0, true}
+        );
     });
 
     scheduler->createTask("Medium", []() {
-        return std::make_shared<SensorTask>("Medium", 100);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"Medium", 100, 10, 0, true, 10, 0, true}
+        );
     });
 
     scheduler->createTask("Slow", []() {
-        return std::make_shared<SensorTask>("Slow", 200);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"Slow", 200, 10, 0, true, 10, 0, true}
+        );
     });
 
     EXPECT_EQ(scheduler->getTaskCount(), 3);
@@ -84,7 +94,9 @@ TEST_F(SchedulerTest, PriorityQueueOrdering) {
 }
 
 TEST_F(SchedulerTest, ReschedulingAfterExecution) {
-    auto actuator = std::make_shared<ActuatorTask>("RescheduleTask", 100);
+    auto actuator = std::make_shared<ActuatorTask>(
+        TaskConfig{"RescheduleTask", 100, 10, 0, true, 10, 0, true}
+    );
     actuator->setCommand(true);
 
     scheduler->createTask("RescheduleTask", [actuator]() {
@@ -104,7 +116,9 @@ TEST_F(SchedulerTest, ReschedulingAfterExecution) {
 }
 
 TEST_F(SchedulerTest, DynamicIntervalChange) {
-    auto actuator = std::make_shared<ActuatorTask>("DynamicTask", 200);
+    auto actuator = std::make_shared<ActuatorTask>(
+        TaskConfig{"DynamicTask", 200, 10, 0, true, 10, 0, true}
+    );
     actuator->setCommand(true);
 
     scheduler->createTask("DynamicTask", [actuator]() {
@@ -133,7 +147,9 @@ TEST_F(SchedulerTest, MultipleWorkersUtilization) {
     for (int i = 0; i < 20; ++i) {
         std::string name = "Worker" + std::to_string(i);
         scheduler->createTask(name, [name]() {
-            return std::make_shared<SensorTask>(name, 50);
+            return std::make_shared<SensorTask>(
+                TaskConfig{name, 50, 10, 0, true, 10, 0, true}
+            );
         });
     }
 
@@ -162,7 +178,9 @@ TEST_F(SchedulerTest, SchedulerShutdownWithActiveTasks) {
     for (int i = 0; i < 5; ++i) {
         std::string name = "ShutdownTask" + std::to_string(i);
         scheduler->createTask(name, [name]() {
-            return std::make_shared<SensorTask>(name, 100);
+            return std::make_shared<SensorTask>(
+                TaskConfig{name, 100, 10, 0, true, 10, 0, true}
+            );
         });
     }
 

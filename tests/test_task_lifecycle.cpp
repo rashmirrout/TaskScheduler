@@ -22,7 +22,9 @@ protected:
 
 TEST_F(TaskLifecycleTest, CreateTask) {
     bool created = scheduler->createTask("TestTask", []() {
-        return std::make_shared<SensorTask>("TestTask", 100);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"TestTask", 100, 10, 0, true, 10, 0, true}
+        );
     });
 
     EXPECT_TRUE(created);
@@ -31,12 +33,16 @@ TEST_F(TaskLifecycleTest, CreateTask) {
 
 TEST_F(TaskLifecycleTest, CreateDuplicateTask) {
     scheduler->createTask("TestTask", []() {
-        return std::make_shared<SensorTask>("TestTask", 100);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"TestTask", 100, 10, 0, true, 10, 0, true}
+        );
     });
 
     // Try to create another task with same name
     bool created = scheduler->createTask("TestTask", []() {
-        return std::make_shared<SensorTask>("TestTask", 100);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"TestTask", 100, 10, 0, true, 10, 0, true}
+        );
     });
 
     EXPECT_FALSE(created);
@@ -47,7 +53,9 @@ TEST_F(TaskLifecycleTest, ScopePersistence) {
     // Create task in local scope
     {
         scheduler->createTask("ScopedTask", []() {
-            return std::make_shared<SensorTask>("ScopedTask", 100);
+            return std::make_shared<SensorTask>(
+                TaskConfig{"ScopedTask", 100, 10, 0, true, 10, 0, true}
+            );
         });
     } // Scope ends, but task should persist in registry
 
@@ -60,7 +68,9 @@ TEST_F(TaskLifecycleTest, ScopePersistence) {
 
 TEST_F(TaskLifecycleTest, StopTask) {
     scheduler->createTask("TestTask", []() {
-        return std::make_shared<SensorTask>("TestTask", 100);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"TestTask", 100, 10, 0, true, 10, 0, true}
+        );
     });
 
     EXPECT_EQ(scheduler->getTaskCount(), 1);
@@ -77,7 +87,9 @@ TEST_F(TaskLifecycleTest, StopNonexistentTask) {
 
 TEST_F(TaskLifecycleTest, GetTask) {
     scheduler->createTask("TestTask", []() {
-        return std::make_shared<SensorTask>("TestTask", 100);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"TestTask", 100, 10, 0, true, 10, 0, true}
+        );
     });
 
     auto task = scheduler->getTask("TestTask");
@@ -92,13 +104,19 @@ TEST_F(TaskLifecycleTest, GetNonexistentTask) {
 
 TEST_F(TaskLifecycleTest, MultipleTasksLifecycle) {
     scheduler->createTask("Task1", []() {
-        return std::make_shared<SensorTask>("Task1", 100);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"Task1", 100, 10, 0, true, 10, 0, true}
+        );
     });
     scheduler->createTask("Task2", []() {
-        return std::make_shared<ActuatorTask>("Task2", 150);
+        return std::make_shared<ActuatorTask>(
+            TaskConfig{"Task2", 150, 10, 0, true, 10, 0, true}
+        );
     });
     scheduler->createTask("Task3", []() {
-        return std::make_shared<SensorTask>("Task3", 200);
+        return std::make_shared<SensorTask>(
+            TaskConfig{"Task3", 200, 10, 0, true, 10, 0, true}
+        );
     });
 
     EXPECT_EQ(scheduler->getTaskCount(), 3);
@@ -116,7 +134,9 @@ TEST_F(TaskLifecycleTest, MultipleTasksLifecycle) {
 }
 
 TEST_F(TaskLifecycleTest, TaskExecutesAfterCreation) {
-    auto task = std::make_shared<ActuatorTask>("ExecutionTest", 50);
+    auto task = std::make_shared<ActuatorTask>(
+        TaskConfig{"ExecutionTest", 50, 10, 0, true, 10, 0, true}
+    );
     task->setCommand(true);
 
     scheduler->createTask("ExecutionTest", [task]() {

@@ -14,10 +14,9 @@ class ActuatorTask : public TaskBase {
 public:
     /**
      * @brief Constructor
-     * @param name Task identifier
-     * @param intervalMs Execution interval
+     * @param config Task configuration
      */
-    ActuatorTask(const std::string& name, int intervalMs);
+    explicit ActuatorTask(const TaskConfig& config);
 
     // Override abstract methods
     PlanResult plan() override;

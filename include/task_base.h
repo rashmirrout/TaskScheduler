@@ -18,19 +18,9 @@ class TaskBase {
 public:
     /**
      * @brief Constructor
-     * @param name Unique identifier for the task
-     * @param intervalMs Execution interval in milliseconds
-     * @param sigTolerance Signal channel debounce threshold
-     * @param sigRepeat Signal channel heartbeat interval (0 = no repeat)
-     * @param actTolerance Action channel debounce threshold
-     * @param actRepeat Action channel heartbeat interval (0 = no repeat)
+     * @param config Task configuration containing all parameters including task name
      */
-    TaskBase(const std::string& name,
-             int intervalMs,
-             int sigTolerance = 10,
-             int sigRepeat = 0,
-             int actTolerance = 10,
-             int actRepeat = 0);
+    explicit TaskBase(const TaskConfig& config);
     
     virtual ~TaskBase() = default;
 

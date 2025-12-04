@@ -7,6 +7,9 @@ add_executable(TaskScheduler_Tests
     test_concurrency.cpp
     test_scheduler.cpp
     test_lazy_deletion.cpp
+    test_config_module.cpp
+    test_edge_cases.cpp
+    test_error_handling.cpp
 )
 
 # Link against TaskScheduler library

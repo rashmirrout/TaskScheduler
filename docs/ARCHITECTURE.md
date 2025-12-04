@@ -149,6 +149,7 @@ struct PlanResult {
 };
 
 struct TaskConfig {
+    std::string taskName;  // Task identifier
     int intervalMs;        // Execution interval
     
     // Signal channel
@@ -1823,6 +1824,1085 @@ Result: Task never executed again, memory freed automatically
 
 ---
 
+## Configuration-Driven Architecture
+
+The framework provides a complete configuration-driven architecture that enables runtime task management without code recompilation. This section describes the hot-reload system, XML configuration schema, factory pattern, error handling, and extension mechanisms.
+
+---
+
+### 1. Configuration Hot-Reload Architecture
+
+**Overview**: The ConfigManager component orchestrates file watching, debouncing, and task synchronization to enable safe runtime configuration updates.
+
+#### Component Interaction
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    ConfigManager                             │
+│                                                              │
+│  ┌───────────────┐    ┌──────────────┐    ┌─────────────┐  │
+│  │ FileWatcher   │───►│ Debounce     │───►│ Task Sync   │  │
+│  │ (inotify/     │    │ Thread       │    │ Logic       │  │
+│  │  polling)     │    │ (5min window)│    │             │  │
+│  └───────────────┘    └──────────────┘    └─────────────┘  │
+│         │                     │                   │         │
+│         │ File Change         │ Debounced         │ Updates │
+│         ▼                     ▼                   ▼         │
+│  tasks.xml  ──────►  Pending Flag  ────►  Scheduler        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### FileWatcher Component
+
+**Purpose**: Monitor configuration file for changes using platform-specific mechanisms
+
+**Implementation**:
+```cpp
+class FileWatcher {
+    // Linux: inotify-based watching
+    // Windows: ReadDirectoryChangesW
+    // macOS: FSEvents
+    // Fallback: Polling with stat()
+    
+    void watch(const std::string& path, 
+               std::function<void()> callback);
+};
+```
+
+**Detection Strategy**:
+```
+1. Primary: Native OS file system events
+   - Linux: inotify (instant notification)
+   - Windows: ReadDirectoryChangesW
+   - macOS: FSEvents
+   
+2. Fallback: Polling (1-second intervals)
+   - Check file modification time
+   - Compare against last known timestamp
+   - Trigger callback on change
+```
+
+#### Debouncing Mechanism
+
+**Problem**: Rapid successive saves can cause task churn
+```
+Editor saves: t=0s, t=0.1s, t=0.3s, t=0.5s
+Without debounce: 4 reloads, 4 task recreations
+With debounce: 1 reload after 5 minutes of stability
+```
+
+**Debounce Algorithm**:
+```cpp
+void ConfigManager::debounceLoop() {
+    while (running_) {
+        if (pendingUpdate_) {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = now - lastChangeTime_;
+            
+            if (elapsed >= debounceWindow_) {
+                // Stable for debounce window - apply changes
+                applyPendingChanges();
+                pendingUpdate_ = false;
+            }
+        }
+        
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+}
+
+void ConfigManager::onFileChanged() {
+    lastChangeTime_ = std::chrono::steady_clock::now();
+    pendingUpdate_ = true;  // Mark for debounced update
+}
+```
+
+**Debounce Window**: 5 minutes (configurable)
+- Prevents churn during active editing
+- Allows batch changes before reload
+- User can adjust via constructor parameter
+
+#### Task Synchronization Algorithm
+
+**Objective**: Safely update running tasks to match new configuration
+
+**Three-Way Diff Algorithm**:
+```cpp
+void ConfigManager::syncTasks(
+    const std::vector<ExtendedTaskConfig>& newConfigs) {
+    
+    std::lock_guard<std::mutex> lock(configMutex_);
+    
+    // 1. BUILD MAPS
+    std::unordered_map<std::string, ExtendedTaskConfig> 
+        currentMap, newMap;
+    for (auto& cfg : currentConfigs_) 
+        currentMap[cfg.config.taskName] = cfg;
+    for (auto& cfg : newConfigs) 
+        newMap[cfg.config.taskName] = cfg;
+    
+    // 2. IDENTIFY CHANGES
+    std::vector<std::string> toRemove;    // In current, not in new
+    std::vector<ExtendedTaskConfig> toAdd; // In new, not in current
+    std::vector<ExtendedTaskConfig> toUpdate; // Changed config
+    
+    // Find removals
+    for (auto& [name, cfg] : currentMap) {
+        if (newMap.find(name) == newMap.end()) {
+            toRemove.push_back(name);
+        }
+    }
+    
+    // Find additions and updates
+    for (auto& [name, newCfg] : newMap) {
+        auto it = currentMap.find(name);
+        if (it == currentMap.end()) {
+            toAdd.push_back(newCfg);  // New task
+        } else if (it->second != newCfg) {
+            toUpdate.push_back(newCfg); // Changed task
+        }
+        // else: unchanged, skip
+    }
+    
+    // 3. APPLY CHANGES
+    for (auto& name : toRemove) {
+        scheduler_.stopTask(name);
+        std::cout << "Removed task: " << name << std::endl;
+    }
+    
+    for (auto& cfg : toAdd) {
+        auto task = TaskFactory::create(cfg);
+        if (task) {
+            scheduler_.createTask(cfg.config.taskName, 
+                [task]() { return task; }, 
+                cfg.config.intervalMs);
+            std::cout << "Added task: " 
+                      << cfg.config.taskName << std::endl;
+        }
+    }
+    
+    for (auto& cfg : toUpdate) {
+        scheduler_.updateTask(cfg.config.taskName, cfg.config);
+        std::cout << "Updated task: " 
+                  << cfg.config.taskName << std::endl;
+    }
+    
+    currentConfigs_ = newConfigs;  // Update cached state
+}
+```
+
+**Synchronization Guarantees**:
+1. **Atomicity**: All changes applied in single critical section
+2. **Consistency**: Three-way diff ensures accurate state tracking
+3. **Isolation**: Lock prevents concurrent modifications
+4. **Durability**: currentConfigs_ persisted for next comparison
+
+#### Hot-Reload Lifecycle
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    HOT-RELOAD LIFECYCLE                      │
+└─────────────────────────────────────────────────────────────┘
+
+1. USER EDITS CONFIG
+   └─► tasks.xml modified (save in editor)
+
+2. FILE SYSTEM EVENT
+   └─► FileWatcher detects change
+   └─► Calls onFileChanged()
+
+3. DEBOUNCE START
+   └─► pendingUpdate_ = true
+   └─► lastChangeTime_ = now
+   └─► Wait for stability...
+
+4. DEBOUNCE WINDOW (5 minutes)
+   └─► User may save multiple times
+   └─► Each save resets lastChangeTime_
+   └─► Countdown restarts
+
+5. STABILITY ACHIEVED
+   └─► No changes for 5 minutes
+   └─► debounceLoop() triggers applyPendingChanges()
+
+6. PARSE NEW CONFIG
+   └─► ConfigParser::parse(configPath_)
+   └─► Validate all task configurations
+   └─► Return vector of ExtendedTaskConfig
+
+7. SYNCHRONIZE TASKS
+   └─► Three-way diff (current vs new)
+   └─► Stop removed tasks
+   └─► Create new tasks via TaskFactory
+   └─► Update changed tasks (preserves state!)
+
+8. UPDATE COMPLETE
+   └─► currentConfigs_ = newConfigs
+   └─► pendingUpdate_ = false
+   └─► Tasks running with new configuration
+```
+
+#### Update Strategies
+
+**Strategy 1: Task Removal**
+```
+Task exists in current but not in new config
+→ scheduler_.stopTask(name)
+→ Lazy deletion (task marked inactive)
+→ Dropped from queues naturally
+→ Destroyed when ref count = 0
+```
+
+**Strategy 2: Task Addition**
+```
+Task exists in new but not in current config
+→ TaskFactory::create(config)
+→ scheduler_.createTask(...)
+→ Task registered and scheduled
+→ Begins execution immediately
+```
+
+**Strategy 3: Task Update (CRITICAL)**
+```
+Task exists in both, but config changed
+→ scheduler_.updateTask(name, newConfig)
+→ Thread-safe config update (mutex)
+→ STATE PRESERVED! (counters, isSignaled_, etc.)
+→ Next run() cycle uses new config
+→ No task restart required
+```
+
+**Update Preservation Example**:
+```
+Before Update:
+  sigCounter_ = 8
+  isSignaled_ = false
+  sigTolerance = 10 (needs 2 more cycles)
+
+Config Update:
+  sigTolerance changes to 5
+
+After Update:
+  sigCounter_ = 8  (PRESERVED!)
+  isSignaled_ = false
+  sigTolerance = 5 (NEW!)
+  
+Next run() cycle:
+  conditionMet = (8 >= 5) → true
+  ACTIVATES immediately!
+```
+
+**Benefit**: State continuity prevents "amnesia" on config changes
+
+---
+
+### 2. XML Configuration Schema
+
+**Purpose**: Define task configurations declaratively without recompilation
+
+#### Complete XML Schema
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<TaskConfigurations>
+    <Task>
+        <!-- IDENTITY -->
+        <taskName>string</taskName>        <!-- Unique identifier -->
+        <taskType>string</taskType>        <!-- "SensorTask" or "ActuatorTask" -->
+        
+        <!-- TIMING -->
+        <intervalMs>int</intervalMs>       <!-- Execution interval (milliseconds) -->
+        
+        <!-- SIGNAL CHANNEL -->
+        <sigTolerance>int</sigTolerance>   <!-- Debounce threshold (cycles) -->
+        <sigRepeat>int</sigRepeat>         <!-- Heartbeat interval (0 = single-shot) -->
+        <allowSignal>bool</allowSignal>    <!-- Safety gate (true/false) -->
+        
+        <!-- ACTION CHANNEL -->
+        <actTolerance>int</actTolerance>   <!-- Debounce threshold (cycles) -->
+        <actRepeat>int</actRepeat>         <!-- Heartbeat interval (0 = single-shot) -->
+        <allowAction>bool</allowAction>    <!-- Safety gate (true/false) -->
+    </Task>
+    
+    <!-- Additional tasks... -->
+</TaskConfigurations>
+```
+
+#### Field Specifications
+
+| Field | Type | Required | Constraints | Default |
+|-------|------|----------|-------------|---------|
+| taskName | string | Yes | Unique, non-empty | - |
+| taskType | string | Yes | "SensorTask" or "ActuatorTask" | - |
+| intervalMs | int | Yes | > 0 | - |
+| sigTolerance | int | No | >= 0 | 10 |
+| sigRepeat | int | No | >= 0 | 0 |
+| allowSignal | bool | No | true/false | true |
+| actTolerance | int | No | >= 0 | 10 |
+| actRepeat | int | No | >= 0 | 0 |
+| allowAction | bool | No | true/false | true |
+
+#### Boolean Value Parsing
+
+**Accepted Formats**:
+```cpp
+bool ConfigParser::parseBool(const std::string& value) {
+    return value == "true" || 
+           value == "True" || 
+           value == "TRUE" ||
+           value == "1";
+}
+```
+
+**Valid Boolean Representations**:
+- `true`, `True`, `TRUE` → true
+- `false`, `False`, `FALSE` → false
+- `1` → true
+- `0` → false
+- Any other value → false (default)
+
+#### Example Configurations
+
+**Example 1: Fast Sensor with Heartbeat**
+```xml
+<Task>
+    <taskName>TemperatureSensor</taskName>
+    <taskType>SensorTask</taskType>
+    <intervalMs>100</intervalMs>
+    <sigTolerance>5</sigTolerance>      <!-- 500ms to activate -->
+    <sigRepeat>10</sigRepeat>           <!-- Re-fire every 1 second -->
+    <allowSignal>true</allowSignal>
+    <actTolerance>10</actTolerance>
+    <actRepeat>0</actRepeat>
+    <allowAction>false</allowAction>    <!-- Action channel disabled -->
+</Task>
+```
+
+**Example 2: Stable Actuator**
+```xml
+<Task>
+    <taskName>MotorController</taskName>
+    <taskType>ActuatorTask</taskType>
+    <intervalMs>50</intervalMs>
+    <sigTolerance>20</sigTolerance>     <!-- Very stable (1 second) -->
+    <sigRepeat>0</sigRepeat>
+    <allowSignal>true</allowSignal>
+    <actTolerance>20</actTolerance>     <!-- Very stable (1 second) -->
+    <actRepeat>5</actRepeat>            <!-- Heartbeat every 250ms -->
+    <allowAction>true</allowAction>
+</Task>
+```
+
+**Example 3: Minimal Configuration (Defaults)**
+```xml
+<Task>
+    <taskName>SimpleSensor</taskName>
+    <taskType>SensorTask</taskType>
+    <intervalMs>1000</intervalMs>
+    <!-- All other fields use defaults -->
+</Task>
+```
+
+#### XML Parsing Process
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    PARSING PIPELINE                          │
+└─────────────────────────────────────────────────────────────┘
+
+1. FILE VALIDATION
+   └─► Check file exists and readable
+   └─► Validate UTF-8 encoding
+   └─► Check XML well-formedness
+
+2. XML PARSING
+   └─► Use tinyxml2 library
+   └─► Parse <TaskConfigurations> root
+   └─► Iterate <Task> elements
+
+3. FIELD EXTRACTION
+   For each <Task>:
+   └─► Extract required fields (throw if missing)
+   └─► Extract optional fields (use defaults if missing)
+   └─► Parse boolean values
+   └─► Convert string to int
+
+4. VALIDATION
+   └─► taskName non-empty and unique
+   └─► taskType in allowed set
+   └─► intervalMs > 0
+   └─► All tolerance/repeat >= 0
+   └─► Return empty vector on validation failure
+
+5. CONSTRUCTION
+   └─► Build TaskConfig struct
+   └─► Build ExtendedTaskConfig struct
+   └─► Add to result vector
+
+6. RETURN
+   └─► Vector of ExtendedTaskConfig
+   └─► Empty vector indicates parse failure
+```
+
+#### Validation Rules
+
+**Rule 1: Unique Task Names**
+```cpp
+std::unordered_set<std::string> names;
+for (auto& config : configs) {
+    if (!names.insert(config.config.taskName).second) {
+        std::cerr << "Duplicate task name: " 
+                  << config.config.taskName << std::endl;
+        return {};  // Parse failure
+    }
+}
+```
+
+**Rule 2: Valid Task Types**
+```cpp
+if (taskType != "SensorTask" && taskType != "ActuatorTask") {
+    std::cerr << "Invalid task type: " << taskType << std::endl;
+    return {};  // Parse failure
+}
+```
+
+**Rule 3: Positive Intervals**
+```cpp
+if (intervalMs <= 0) {
+    std::cerr << "Invalid intervalMs: " << intervalMs << std::endl;
+    return {};  // Parse failure
+}
+```
+
+**Rule 4: Non-negative Tolerances**
+```cpp
+if (sigTolerance < 0 || actTolerance < 0 ||
+    sigRepeat < 0 || actRepeat < 0) {
+    std::cerr << "Negative tolerance/repeat values" << std::endl;
+    return {};  // Parse failure
+}
+```
+
+---
+
+### 3. Task Factory Pattern
+
+**Purpose**: Decouple task creation from configuration, enable polymorphic instantiation
+
+#### Factory Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     TaskFactory                              │
+│                                                              │
+│  create(ExtendedTaskConfig)                                 │
+│     │                                                        │
+│     ├──► if (taskType == "SensorTask")                      │
+│     │       return make_shared<SensorTask>(config)          │
+│     │                                                        │
+│     ├──► if (taskType == "ActuatorTask")                    │
+│     │       return make_shared<ActuatorTask>(config)        │
+│     │                                                        │
+│     └──► else                                               │
+│           return nullptr (unknown type)                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Implementation
+
+```cpp
+std::shared_ptr<TaskBase> TaskFactory::create(
+    const ExtendedTaskConfig& config) {
+    
+    const auto& tc = config.config;  // Extract TaskConfig
+    
+    if (config.taskType == "SensorTask") {
+        return std::make_shared<SensorTask>(
+            tc.taskName,
+            tc.intervalMs,
+            tc.sigTolerance,
+            tc.sigRepeat,
+            tc.actTolerance,
+            tc.actRepeat
+        );
+    }
+    else if (config.taskType == "ActuatorTask") {
+        return std::make_shared<ActuatorTask>(
+            tc.taskName,
+            tc.intervalMs,
+            tc.sigTolerance,
+            tc.sigRepeat,
+            tc.actTolerance,
+            tc.actRepeat
+        );
+    }
+    else {
+        std::cerr << "Unknown task type: " 
+                  << config.taskType << std::endl;
+        return nullptr;
+    }
+}
+```
+
+#### Factory Pattern Benefits
+
+**1. Polymorphic Creation**
+```cpp
+// Client code doesn't know concrete type
+auto task = TaskFactory::create(config);
+if (task) {
+    // Works with any TaskBase-derived type
+    scheduler.createTask(config.config.taskName, 
+        [task]() { return task; }, 
+        config.config.intervalMs);
+}
+```
+
+**2. Centralized Type Mapping**
+```
+XML "taskType" → C++ class mapping in one place
+Easy to add new task types:
+  1. Add new class deriving from TaskBase
+  2. Add case in TaskFactory::create()
+  3. Update XML schema documentation
+```
+
+**3. Type Safety**
+```cpp
+// Compile-time check that all types derive from TaskBase
+static_assert(std::is_base_of_v<TaskBase, SensorTask>);
+static_assert(std::is_base_of_v<TaskBase, ActuatorTask>);
+```
+
+**4. Error Handling**
+```cpp
+// Factory returns nullptr for unknown types
+auto task = TaskFactory::create(config);
+if (!task) {
+    // Graceful degradation - skip invalid task
+    // Don't crash entire configuration load
+    continue;
+}
+```
+
+#### Creation Flow
+
+```
+XML Config ──► ConfigParser ──► ExtendedTaskConfig ──► TaskFactory
+                                                           │
+                                                           ▼
+                                               ┌───────────────────┐
+                                               │ Concrete Instance │
+                                               │  (SensorTask or   │
+                                               │  ActuatorTask)    │
+                                               └───────────────────┘
+                                                           │
+                                                           ▼
+                                                  shared_ptr<TaskBase>
+                                                           │
+                                                           ▼
+                                                      Scheduler
+```
+
+---
+
+### 4. Error Handling Strategies
+
+**Philosophy**: Fail gracefully, provide diagnostics, maintain system stability
+
+#### Error Categories
+
+**1. Configuration Errors**
+- Invalid XML syntax
+- Missing required fields
+- Invalid field values
+- Duplicate task names
+
+**2. Runtime Errors**
+- File not found
+- Permission denied
+- Task creation failure
+- Scheduler errors
+
+**3. Validation Errors**
+- Type mismatches
+- Range violations
+- Constraint violations
+
+#### Error Handling Mechanisms
+
+**Mechanism 1: Parse Failure → Empty Vector**
+```cpp
+std::vector<ExtendedTaskConfig> ConfigParser::parse(
+    const std::string& xmlPath) {
+    
+    // Any error returns empty vector
+    if (!fileExists(xmlPath)) {
+        std::cerr << "Config file not found: " 
+                  << xmlPath << std::endl;
+        return {};  // Empty = parse failure
+    }
+    
+    // ... parsing logic ...
+    
+    if (validationFailed) {
+        std::cerr << "Validation failed for task: " 
+                  << taskName << std::endl;
+        return {};  // Empty = parse failure
+    }
+    
+    return configs;  // Success
+}
+```
+
+**Mechanism 2: Graceful Degradation**
+```cpp
+void ConfigManager::syncTasks(
+    const std::vector<ExtendedTaskConfig>& newConfigs) {
+    
+    for (auto& cfg : toAdd) {
+        auto task = TaskFactory::create(cfg);
+        if (!task) {
+            // Skip invalid task, continue with others
+            std::cerr << "Failed to create task: " 
+                      << cfg.config.taskName << std::endl;
+            continue;  // Don't crash, skip this task
+        }
+        
+        // Attempt to add task
+        try {
+            scheduler_.createTask(/*...*/);
+        } catch (const std::exception& e) {
+            std::cerr << "Failed to add task: " 
+                      << cfg.config.taskName 
+                      << " - " << e.what() << std::endl;
+            continue;  // Skip this task
+        }
+    }
+}
+```
+
+**Mechanism 3: Logging and Diagnostics**
+```cpp
+// Detailed error messages with context
+std::cerr << "[ConfigParser] Error in task '" 
+          << taskName << "': "
+          << "intervalMs must be positive (got " 
+          << intervalMs << ")" << std::endl;
+
+// State preservation on error
+if (parseError) {
+    // Don't update currentConfigs_
+    // Keep system running with last known good config
+    std::cerr << "Parse error - keeping existing configuration" 
+              << std::endl;
+    return;
+}
+```
+
+**Mechanism 4: Validation Before Application**
+```cpp
+// Validate entire config before making ANY changes
+auto newConfigs = ConfigParser::parse(configPath_);
+if (newConfigs.empty()) {
+    // Parse failed - don't modify running system
+    return;
+}
+
+// All configs valid - safe to proceed with sync
+syncTasks(newConfigs);
+```
+
+#### Error Recovery Strategies
+
+**Strategy 1: Keep Last Known Good Configuration**
+```
+Parse Error Detected
+  ↓
+Don't modify currentConfigs_
+  ↓
+Don't call syncTasks()
+  ↓
+System continues with existing tasks
+  ↓
+User fixes XML, saves again
+  ↓
+Retry parse after debounce
+```
+
+**Strategy 2: Partial Success**
+```
+Parse successful for tasks A, B, C
+Task D creation fails
+  ↓
+Tasks A, B, C created successfully
+Task D skipped with error message
+  ↓
+System runs with 3/4 tasks
+  ↓
+User investigates Task D error
+User fixes configuration
+  ↓
+Hot-reload adds Task D
+```
+
+**Strategy 3: Rollback on Critical Failure**
+```cpp
+void ConfigManager::applyPendingChanges() {
+    auto newConfigs = ConfigParser::parse(configPath_);
+    
+    if (newConfigs.empty()) {
+        // CRITICAL: Parse failed
+        std::cerr << "Parse failed - rollback to previous config" 
+                  << std::endl;
+        
+        // Option 1: Do nothing (keep current state)
+        return;
+        
+        // Option 2: Could restore from backup
+        // restoreFromBackup();
+    }
+    
+    // Proceed with update
+    syncTasks(newConfigs);
+}
+```
+
+#### Common Error Scenarios
+
+**Scenario 1: Typo in Task Type**
+```xml
+<taskType>SensrTask</taskType>  <!-- Typo! -->
+```
+**Handling**:
+```
+TaskFactory::create() returns nullptr
+  ↓
+Task skipped with error message
+  ↓
+Other tasks continue to run
+  ↓
+User sees error in console
+User fixes typo
+  ↓
+Hot-reload adds corrected task
+```
+
+**Scenario 2: Negative Tolerance**
+```xml
+<sigTolerance>-5</sigTolerance>  <!-- Invalid! -->
+```
+**Handling**:
+```
+ConfigParser validation fails
+  ↓
+Returns empty vector
+  ↓
+applyPendingChanges() aborts
+  ↓
+Keeps existing configuration
+  ↓
+Error logged with details
+```
+
+**Scenario 3: Duplicate Task Names**
+```xml
+<Task><taskName>SensorA</taskName>...</Task>
+<Task><taskName>SensorA</taskName>...</Task>  <!-- Duplicate! -->
+```
+**Handling**:
+```
+Validation detects duplicate
+  ↓
+Parse fails, returns empty vector
+  ↓
+Error message: "Duplicate task name: SensorA"
+  ↓
+Configuration unchanged
+```
+
+---
+
+### 5. Extension Points - Adding New Task Types
+
+**Objective**: Enable users to add custom task types without modifying framework core
+
+#### Extension Process (4 Steps)
+
+**Step 1: Create Derived Task Class**
+
+```cpp
+// include/tasks/my_custom_task.h
+#pragma once
+#include "core/task_base.h"
+
+namespace task_scheduler {
+
+class MyCustomTask : public TaskBase {
+public:
+    MyCustomTask(const std::string& name, int intervalMs,
+                 int sigTolerance = 10, int sigRepeat = 0,
+                 int actTolerance = 10, int actRepeat = 0);
+    
+    virtual ~MyCustomTask() = default;
+
+protected:
+    // REQUIRED: Implement Template Method interface
+    PlanResult plan() override;
+    void signal(bool active) override;
+    void act(bool active) override;
+
+private:
+    // Custom state and logic
+    int customCounter_;
+    // ... custom members ...
+};
+
+} // namespace task_scheduler
+```
+
+**Step 2: Implement Task Logic**
+
+```cpp
+// src/tasks/my_custom_task.cpp
+#include "tasks/my_custom_task.h"
+#include <iostream>
+
+namespace task_scheduler {
+
+MyCustomTask::MyCustomTask(const std::string& name, int intervalMs,
+                           int sigTolerance, int sigRepeat,
+                           int actTolerance, int actRepeat)
+    : TaskBase(name, intervalMs, sigTolerance, sigRepeat, 
+               actTolerance, actRepeat)
+    , customCounter_(0)
+{
+    std::cout << "[MyCustomTask] Created: " << name << std::endl;
+}
+
+PlanResult MyCustomTask::plan() {
+    // Custom planning logic
+    customCounter_++;
+    
+    // Decide what this task wants to do
+    bool wantSignal = (customCounter_ % 10 == 0);
+    bool wantAct = (customCounter_ % 20 == 0);
+    
+    return {wantSignal, wantAct};
+}
+
+void MyCustomTask::signal(bool active) {
+    if (active) {
+        std::cout << "[MyCustomTask] Signal activated: " 
+                  << getName() << std::endl;
+        // Custom signal logic
+    } else {
+        std::cout << "[MyCustomTask] Signal deactivated: " 
+                  << getName() << std::endl;
+    }
+}
+
+void MyCustomTask::act(bool active) {
+    if (active) {
+        std::cout << "[MyCustomTask] Action activated: " 
+                  << getName() << std::endl;
+        // Custom action logic
+    } else {
+        std::cout << "[MyCustomTask] Action deactivated: " 
+                  << getName() << std::endl;
+    }
+}
+
+} // namespace task_scheduler
+```
+
+**Step 3: Register with TaskFactory**
+
+```cpp
+// src/tasks/task_factory.cpp
+#include "tasks/task_factory.h"
+#include "tasks/sensor_task.h"
+#include "tasks/actuator_task.h"
+#include "tasks/my_custom_task.h"  // ADD THIS
+
+namespace task_scheduler {
+
+std::shared_ptr<TaskBase> TaskFactory::create(
+    const ExtendedTaskConfig& config) {
+    
+    const auto& tc = config.config;
+    
+    if (config.taskType == "SensorTask") {
+        return std::make_shared<SensorTask>(/*...*/);
+    }
+    else if (config.taskType == "ActuatorTask") {
+        return std::make_shared<ActuatorTask>(/*...*/);
+    }
+    // ADD THIS:
+    else if (config.taskType == "MyCustomTask") {
+        return std::make_shared<MyCustomTask>(
+            tc.taskName, tc.intervalMs,
+            tc.sigTolerance, tc.sigRepeat,
+            tc.actTolerance, tc.actRepeat
+        );
+    }
+    else {
+        std::cerr << "Unknown task type: " 
+                  << config.taskType << std::endl;
+        return nullptr;
+    }
+}
+
+} // namespace task_scheduler
+```
+
+**Step 4: Add to XML Configuration**
+
+```xml
+<!-- config/tasks.xml -->
+<Task>
+    <taskName>CustomTask1</taskName>
+    <taskType>MyCustomTask</taskType>  <!-- NEW TYPE -->
+    <intervalMs>500</intervalMs>
+    <sigTolerance>5</sigTolerance>
+    <sigRepeat>3</sigRepeat>
+    <allowSignal>true</allowSignal>
+    <actTolerance>10</actTolerance>
+    <actRepeat>0</actRepeat>
+    <allowAction>true</allowAction>
+</Task>
+```
+
+#### Extension Points in Framework
+
+**1. TaskBase Template Method Pattern**
+```
+Framework provides:
+  - run() orchestration (FINAL, cannot override)
+  - State machine logic
+  - Channel management
+  - Configuration handling
+
+Derived class provides:
+  - plan() - What does task want to do?
+  - signal(bool) - How to handle signal state changes?
+  - act(bool) - How to handle action state changes?
+```
+
+**2. Polymorphic Task Storage**
+```cpp
+// Scheduler doesn't know about concrete types
+std::unordered_map<std::string, std::shared_ptr<TaskBase>> registry_;
+
+// Works with any TaskBase-derived class
+task->run();  // Calls TaskBase::run() (template method)
+              // Which calls derived plan(), signal(), act()
+```
+
+**3. Factory Pattern Extensibility**
+```
+Add new task type:
+  1. Create derived class
+  2. Add case in TaskFactory::create()
+  3. Update XML schema
+  
+No changes needed to:
+  - Scheduler
+  - ConfigManager
+  - TaskBase
+  - Core framework
+```
+
+#### Advanced Extension Example: Network Task
+
+```cpp
+class NetworkTask : public TaskBase {
+public:
+    NetworkTask(const std::string& name, int intervalMs,
+                const std::string& url);
+
+protected:
+    PlanResult plan() override {
+        // HTTP GET request
+        auto response = httpGet(url_);
+        
+        // Parse response, decide action
+        bool wantSignal = response.statusCode != 200;
+        bool wantAct = response.containsUpdate();
+        
+        return {wantSignal, wantAct};
+    }
+    
+    void signal(bool active) override {
+        if (active) {
+            sendAlert("Network issue detected!");
+        }
+    }
+    
+    void act(bool active) override {
+        if (active) {
+            applyNetworkUpdate();
+        }
+    }
+
+private:
+    std::string url_;
+    HttpClient client_;
+};
+```
+
+#### Extension Best Practices
+
+**1. Follow Template Method Contract**
+```cpp
+// DO: Implement all pure virtual methods
+PlanResult plan() override { /* ... */ }
+void signal(bool active) override { /* ... */ }
+void act(bool active) override { /* ... */ }
+
+// DON'T: Try to override run()
+// run() is non-virtual and final
+```
+
+**2. Use Configuration Properly**
+```cpp
+// DO: Accept standard configuration in constructor
+MyTask(const std::string& name, int intervalMs,
+       int sigTolerance, int sigRepeat,
+       int actTolerance, int actRepeat)
+    : TaskBase(name, intervalMs, sigTolerance, sigRepeat,
+               actTolerance, actRepeat) { }
+
+// DON'T: Ignore base class configuration
+```
+
+**3. Handle State Carefully**
+```cpp
+// DO: Store custom state as private members
+class MyTask : public TaskBase {
+private:
+    int myCounter_;
+    std::string myState_;
+};
+
+// DON'T: Try to access base class state
+// (sigCounter_, isSignaled_, etc. are private)
+```
+
+**4. Thread Safety**
+```cpp
+// plan(), signal(), act() called by single worker thread
+// → Safe to modify member variables without locks
+
+// If task accesses external shared state:
+std::mutex externalMutex_;
+void signal(bool active) override {
+    std::lock_guard<std::mutex> lock(externalMutex_);
+    sharedResource.update();
+}
+```
+
+---
+
 ## Conclusion
 
 This architecture provides:
@@ -2032,6 +3112,7 @@ TaskConfig{
 
 | Parameter | Type | Purpose | Default |
 |-----------|------|---------|---------|
+| taskName | string | Task identifier | - |
 | intervalMs | int | Execution interval | - |
 | sigTolerance | int | Signal debounce threshold | 10 |
 | sigRepeat | int | Signal heartbeat interval (0=none) | 0 |

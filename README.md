@@ -107,11 +107,16 @@ TaskScheduler/
   - GCC 7+ / Clang 5+ / MSVC 2017+
 - **CMake**: 3.14 or higher
 - **Operating System**: Windows, Linux, macOS
-- **Dependencies**: GoogleTest (automatically fetched by CMake)
+- **Dependencies**: All dependencies are automatically fetched by CMake
+  - GoogleTest 1.14.0 (testing framework)
+  - pugixml 1.14 (XML parsing library)
+  - **No git submodules or manual installation required!**
 
 ## Building
 
-### Quick Start
+### First-Time Build (Internet Required)
+
+When you run CMake for the first time, it will automatically download all dependencies:
 
 ```bash
 # Clone the repository
@@ -122,10 +127,32 @@ cd TaskScheduler
 mkdir build
 cd build
 
-# Configure with CMake
+# Configure with CMake (downloads dependencies automatically)
 cmake ..
+```
 
-# Build the project
+**What happens during `cmake ..`:**
+
+1. **GoogleTest 1.14.0** is downloaded from:
+   - Source: https://github.com/google/googletest.git
+   - Tag: v1.14.0
+   - Location: `build/_deps/googletest-src/`
+
+2. **pugixml 1.14** is downloaded from:
+   - Source: https://github.com/zeux/pugixml.git
+   - Tag: v1.14
+   - Location: `build/_deps/pugixml-src/`
+   - Headers available at: `build/_deps/pugixml-src/src/pugixml.hpp`
+
+3. Both libraries are configured and built automatically
+4. Include paths and link libraries are set up automatically
+
+**After first build:** Dependencies are cached in the `build/_deps/` directory. Subsequent builds don't require internet access unless you delete the build directory.
+
+### Quick Start
+
+```bash
+# After CMake configuration is complete, build the project
 cmake --build .
 
 # Run tests
@@ -135,6 +162,30 @@ ctest --verbose
 ./src/main               # Linux/macOS
 .\src\Debug\main.exe     # Windows (Debug)
 .\src\Release\main.exe   # Windows (Release)
+```
+
+### Troubleshooting Build Issues
+
+**Problem: CMake can't download dependencies**
+```
+Solution: Ensure you have internet access during first `cmake ..` run
+```
+
+**Problem: Build errors about missing pugixml.hpp**
+```
+Solution: Delete build directory and re-run cmake:
+  rm -rf build
+  mkdir build
+  cd build
+  cmake ..
+```
+
+**Problem: Want to update dependencies to latest versions**
+```
+Solution: Delete _deps folder:
+  rm -rf build/_deps
+  cd build
+  cmake ..
 ```
 
 ### Platform-Specific Instructions

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TaskConfigurations>
+    <!-- Sensor Task Example -->
+    <Task>
+        <taskName>SensorA</taskName>
+        <taskType>SensorTask</taskType>
+        <intervalMs>1000</intervalMs>
+        <sigTolerance>10</sigTolerance>
+        <sigRepeat>0</sigRepeat>
+        <allowSignal>true</allowSignal>
+        <actTolerance>10</actTolerance>
+        <actRepeat>0</actRepeat>
+        <allowAction>true</allowAction>
+    </Task>
+    
+    <!-- Actuator Task Example -->
+    <Task>
+        <taskName>ActuatorA</taskName>
+        <taskType>ActuatorTask</taskType>
+        <intervalMs>800</intervalMs>
+        <sigTolerance>10</sigTolerance>
+        <sigRepeat>0</sigRepeat>
+        <allowSignal>true</allowSignal>
+        <actTolerance>10</actTolerance>
+        <actRepeat>0</actRepeat>
+        <allowAction>true</allowAction>
+    </Task>
+    
+    <!-- Additional Sensor with Custom Settings -->
+    <Task>
+        <taskName>SensorB</taskName>
+        <taskType>SensorTask</taskType>
+        <intervalMs>500</intervalMs>
+        <sigTolerance>5</sigTolerance>
+        <sigRepeat>3</sigRepeat>
+        <allowSignal>true</allowSignal>
+        <actTolerance>5</actTolerance>
+        <actRepeat>0</actRepeat>
+        <allowAction>false</allowAction>
+    </Task>
+</TaskConfigurations>

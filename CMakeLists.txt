@@ -20,6 +20,14 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+# Fetch pugixml for XML parsing
+FetchContent_Declare(
+    pugixml
+    GIT_REPOSITORY https://github.com/zeux/pugixml.git
+    GIT_TAG        v1.14
+)
+FetchContent_MakeAvailable(pugixml)
+
 # Add subdirectories
 add_subdirectory(src)
 add_subdirectory(tests)

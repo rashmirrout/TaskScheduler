@@ -4,6 +4,10 @@ add_library(TaskScheduler
     scheduler.cpp
     sensor_task.cpp
     actuator_task.cpp
+    config_parser.cpp
+    file_watcher.cpp
+    task_factory.cpp
+    config_manager.cpp
 )
 
 # Include directories
@@ -13,7 +17,10 @@ target_include_directories(TaskScheduler PUBLIC
 
 # Link threading library
 find_package(Threads REQUIRED)
-target_link_libraries(TaskScheduler PUBLIC Threads::Threads)
+target_link_libraries(TaskScheduler PUBLIC 
+    Threads::Threads
+    pugixml::pugixml
+)
 
 # Platform-specific settings
 if(WIN32)

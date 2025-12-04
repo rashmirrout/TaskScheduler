@@ -1,109 +1,97 @@
 #include "scheduler.h"
+#include "config_manager.h"
 #include "sensor_task.h"
 #include "actuator_task.h"
 #include <iostream>
 #include <thread>
 #include <chrono>
 #include <memory>
+#include <filesystem>
 
 using namespace task_scheduler;
 
 int main() {
-    std::cout << "=================================================\n";
-    std::cout << "  Thread-Safe Task Scheduling Framework Demo\n";
-    std::cout << "=================================================\n\n";
+    std::cout << "==========================================================\n";
+    std::cout << "  Config-Driven Task Scheduling Framework Demo\n";
+    std::cout << "==========================================================\n\n";
 
     // Create scheduler with 4 worker threads
     Scheduler scheduler(4);
 
-    std::cout << "1. SCOPE TEST: Creating tasks in local scope...\n";
-    std::cout << "   (Tasks will persist even after scope ends)\n\n";
+    std::cout << "1. MANUAL TASK CREATION (Demo)\n";
+    std::cout << "   Creating a demo task programmatically...\n\n";
 
-    // ====== SCOPE TEST ======
-    {
-        // Create SensorTask inside this scope
-        scheduler.createTask("SensorA", []() {
-            return std::make_shared<SensorTask>(
-                TaskConfig{"SensorA", 1000, 10, 0, true, 10, 0, true},
-                50.0
-            );
-        });
+    // Create a demo task manually to show both approaches work together
+    scheduler.createTask("DemoTask", []() {
+        return std::make_shared<SensorTask>(
+            TaskConfig{"DemoTask", 2000, 10, 0, true, 10, 0, true},
+            50.0
+        );
+    });
 
-        // Create ActuatorTask inside this scope
-        scheduler.createTask("ActuatorA", []() {
-            return std::make_shared<ActuatorTask>(
-                TaskConfig{"ActuatorA", 800, 10, 0, true, 10, 0, true}
-            );
-        });
-
-        std::cout << "   Tasks created. Exiting scope in 2 seconds...\n";
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-    } // <-- Scope ends here, but tasks are kept alive by scheduler registry
-
-    std::cout << "\n   Scope ended. Tasks should still be running!\n";
+    std::cout << "   Demo task created: DemoTask (2000ms interval)\n";
     std::cout << "   Active tasks: " << scheduler.getTaskCount() << "\n\n";
 
-    // Set sensor value above threshold to activate signal
-    auto sensorTask = std::dynamic_pointer_cast<SensorTask>(scheduler.getTask("SensorA"));
-    if (sensorTask) {
-        sensorTask->setSensorValue(75.0);
-    }
-
-    // Enable actuator command
-    auto actuatorTask = std::dynamic_pointer_cast<ActuatorTask>(scheduler.getTask("ActuatorA"));
-    if (actuatorTask) {
-        actuatorTask->setCommand(true);
-    }
-
-    std::cout << "2. OBSERVING: Tasks running at initial frequency...\n";
-    std::cout << "   SensorA: 1000ms interval\n";
-    std::cout << "   ActuatorA: 800ms interval\n\n";
+    // Let demo task run briefly
     std::this_thread::sleep_for(std::chrono::seconds(3));
 
-    // ====== DYNAMIC UPDATE TEST ======
-    std::cout << "\n3. DYNAMIC UPDATE: Changing SensorA frequency to 200ms...\n\n";
-    scheduler.updateTask("SensorA", 
-                        200,    // intervalMs (was 1000ms)
-                        10,     // sigTolerance
-                        5,      // sigRepeat (heartbeat every 5 cycles)
-                        true,   // allowSignal
-                        10,     // actTolerance
-                        0,      // actRepeat
-                        true);  // allowAction
+    // Path to configuration file
+    std::string configPath = "config/tasks.xml";
+    
+    // Check if config file exists
+    if (!std::filesystem::exists(configPath)) {
+        std::cerr << "Error: Configuration file not found: " << configPath << std::endl;
+        std::cerr << "Please create the config file or update the path." << std::endl;
+        return 1;
+    }
 
-    std::cout << "   Updated! SensorA should now fire 5x faster...\n\n";
-    std::this_thread::sleep_for(std::chrono::seconds(3));
+    std::cout << "\n2. CONFIG-DRIVEN INITIALIZATION\n";
+    std::cout << "   Loading tasks from: " << configPath << "\n\n";
 
-    // ====== GATE TEST ======
-    std::cout << "\n4. SAFETY GATE TEST: Disabling ActuatorA signal channel...\n\n";
-    scheduler.updateTask("ActuatorA",
-                        800,    // intervalMs
-                        10,     // sigTolerance
-                        0,      // sigRepeat
-                        false,  // allowSignal <- GATE CLOSED
-                        10,     // actTolerance
-                        0,      // actRepeat
-                        true);  // allowAction
+    // Create ConfigManager with 1-minute debounce for testing (default is 5 min)
+    ConfigManager configManager(scheduler, configPath, std::chrono::minutes(1));
+    
+    if (!configManager.start()) {
+        std::cerr << "Failed to start ConfigManager" << std::endl;
+        return 1;
+    }
 
-    std::cout << "   Signal gate closed. ActuatorA signals should stop...\n\n";
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::cout << "\n3. COMBINED TASKS RUNNING\n";
+    std::cout << "   Manual task: DemoTask (2000ms)\n";
+    std::cout << "   Config tasks: " << (scheduler.getTaskCount() - 1) << " task(s)\n";
+    std::cout << "   Total active tasks: " << scheduler.getTaskCount() << "\n";
+    std::cout << "   File watcher is monitoring: " << configPath << "\n\n";
 
-    // ====== LAZY DELETION TEST ======
-    std::cout << "\n5. LAZY DELETION TEST: Stopping SensorA...\n\n";
-    scheduler.stopTask("SensorA");
-    std::cout << "   SensorA stopped. Output should cease immediately.\n";
-    std::cout << "   Active tasks: " << scheduler.getTaskCount() << "\n\n";
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    // Let tasks run for observation
+    std::cout << "   Letting tasks run for 5 seconds...\n";
+    std::this_thread::sleep_for(std::chrono::seconds(5));
 
-    std::cout << "\n6. CLEAN SHUTDOWN: Stopping all remaining tasks...\n\n";
-    scheduler.stopTask("ActuatorA");
-    std::cout << "   Active tasks: " << scheduler.getTaskCount() << "\n\n";
+    std::cout << "\n4. FILE WATCHING DEMONSTRATION\n";
+    std::cout << "   The system is now watching for configuration changes.\n";
+    std::cout << "   You can modify " << configPath << " to:\n";
+    std::cout << "   - Add new tasks\n";
+    std::cout << "   - Update existing task configurations\n";
+    std::cout << "   - Remove tasks\n";
+    std::cout << "   \n";
+    std::cout << "   Changes will be applied after 1-minute debounce window.\n";
+    std::cout << "   \n";
+    std::cout << "   Press Ctrl+C to exit, or wait 30 seconds for auto-shutdown...\n\n";
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // Run for 30 seconds to allow testing file changes
+    for (int i = 30; i > 0; i--) {
+        std::cout << "   Remaining: " << i << " seconds   \r" << std::flush;
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
 
-    std::cout << "=================================================\n";
-    std::cout << "  Demo Complete - All tasks stopped\n";
-    std::cout << "=================================================\n";
+    std::cout << "\n\n5. CLEAN SHUTDOWN\n";
+    std::cout << "   Stopping ConfigManager...\n";
+    configManager.stop();
+    
+    std::cout << "   Final task count: " << scheduler.getTaskCount() << "\n\n";
+
+    std::cout << "==========================================================\n";
+    std::cout << "  Demo Complete - Config-Driven System Demonstrated\n";
+    std::cout << "==========================================================\n";
 
     // Scheduler destructor will clean up threads
     return 0;

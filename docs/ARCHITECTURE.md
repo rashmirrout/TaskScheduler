@@ -66,9 +66,77 @@
 
 ---
 
+## Project Structure
+
+### Directory Organization
+
+The project follows a modular structure with clear separation of concerns:
+
+```
+TaskScheduler/
+├── include/
+│   ├── core/              # Core scheduling engine
+│   │   ├── types.h        # Fundamental data structures
+│   │   ├── task_base.h    # Abstract task interface & state machine
+│   │   └── scheduler.h    # Thread-safe task orchestration
+│   ├── tasks/             # Concrete task implementations
+│   │   ├── sensor_task.h
+│   │   ├── actuator_task.h
+│   │   └── task_factory.h
+│   └── config/            # Configuration management
+│       ├── config_parser.h
+│       ├── file_watcher.h
+│       └── config_manager.h
+├── src/
+│   ├── core/              # Core implementation
+│   │   ├── task_base.cpp
+│   │   └── scheduler.cpp
+│   ├── tasks/             # Task implementations
+│   │   ├── sensor_task.cpp
+│   │   ├── actuator_task.cpp
+│   │   └── task_factory.cpp
+│   ├── config/            # Configuration implementation
+│   │   ├── config_parser.cpp
+│   │   ├── file_watcher.cpp
+│   │   └── config_manager.cpp
+│   └── main.cpp
+├── tests/                 # Unit and integration tests
+├── config/                # XML configuration files
+└── docs/                  # Documentation
+```
+
+### Module Responsibilities
+
+**Core Module** (`core/`):
+- Contains the "brain and center" of the framework
+- `task_base.h/cpp`: Template Method pattern implementation, state machine logic
+- `scheduler.h/cpp`: Thread pool, priority queue, task lifecycle management
+- `types.h`: Shared data structures (TaskConfig, PlanResult, ScheduleEntry)
+
+**Tasks Module** (`tasks/`):
+- Concrete task implementations demonstrating framework usage
+- `sensor_task.h/cpp`: Signal-focused task (monitoring, alerts)
+- `actuator_task.h/cpp`: Action-focused task (commands, control)
+- `task_factory.h/cpp`: Factory pattern for creating tasks from configurations
+
+**Config Module** (`config/`):
+- Configuration-driven task management
+- `config_parser.h/cpp`: XML parsing and validation
+- `file_watcher.h/cpp`: File system monitoring
+- `config_manager.h/cpp`: Hot-reload, debouncing, task synchronization
+
+### Design Rationale
+
+1. **Core as Foundation**: `task_base` placed in `core/` because it's the fundamental abstraction that all tasks depend on
+2. **Separation of Concerns**: Clear boundaries between scheduling (core), implementations (tasks), and configuration (config)
+3. **Include Path Convention**: Use subfolder in includes (e.g., `#include "core/scheduler.h"`) for clarity and namespace organization
+4. **Testability**: Modular structure facilitates unit testing of individual components
+
+---
+
 ## Modules
 
-### 1. Types Module (`include/types.h`)
+### 1. Core Module - Types (`include/core/types.h`)
 
 **Purpose**: Core data structures used across the framework
 

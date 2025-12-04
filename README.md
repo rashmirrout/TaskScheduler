@@ -24,33 +24,82 @@ A production-ready C++17 task scheduling framework featuring sophisticated state
 
 ## Project Structure
 
+The project follows a modular architecture with clear separation of concerns:
+
 ```
 TaskScheduler/
-├── CMakeLists.txt           # Root CMake configuration
-├── README.md                # This file
-├── include/                 # Public headers
-│   ├── types.h             # Common data structures
-│   ├── task_base.h         # Abstract task interface
-│   ├── scheduler.h         # Scheduler class
-│   ├── sensor_task.h       # Example sensor task
-│   └── actuator_task.h     # Example actuator task
-├── src/                     # Implementation files
-│   ├── CMakeLists.txt      # Library build configuration
-│   ├── task_base.cpp       # State machine implementation
-│   ├── scheduler.cpp       # Scheduler implementation
-│   ├── sensor_task.cpp     # Sensor task implementation
-│   ├── actuator_task.cpp   # Actuator task implementation
-│   └── main.cpp            # Demo application
-└── tests/                   # Test suite
-    ├── CMakeLists.txt      # Test build configuration
-    ├── test_main.cpp       # GTest entry point
-    ├── test_task_lifecycle.cpp
-    ├── test_state_machine.cpp
-    ├── test_config_updates.cpp
-    ├── test_concurrency.cpp
-    ├── test_scheduler.cpp
-    └── test_lazy_deletion.cpp
+├── CMakeLists.txt              # Root CMake configuration
+├── README.md                   # This file
+├── LICENSE                     # License file
+├── .gitignore                  # Git ignore patterns
+│
+├── include/                    # Public headers (modular structure)
+│   ├── core/                   # Core scheduling engine
+│   │   ├── types.h            # Common data structures (TaskConfig, PlanResult)
+│   │   ├── task_base.h        # Abstract task interface & state machine
+│   │   └── scheduler.h        # Thread-safe scheduler with priority queue
+│   ├── tasks/                  # Concrete task implementations
+│   │   ├── sensor_task.h      # Example sensor task (signal-focused)
+│   │   ├── actuator_task.h    # Example actuator task (action-focused)
+│   │   └── task_factory.h     # Factory pattern for task creation
+│   └── config/                 # Configuration management
+│       ├── config_parser.h    # XML configuration parser
+│       ├── file_watcher.h     # File system monitoring
+│       └── config_manager.h   # Hot-reload & task synchronization
+│
+├── src/                        # Implementation files (mirrors include structure)
+│   ├── CMakeLists.txt         # Library build configuration
+│   ├── core/                   # Core implementations
+│   │   ├── task_base.cpp      # State machine logic
+│   │   └── scheduler.cpp      # Scheduler implementation
+│   ├── tasks/                  # Task implementations
+│   │   ├── sensor_task.cpp    # Sensor task implementation
+│   │   ├── actuator_task.cpp  # Actuator task implementation
+│   │   └── task_factory.cpp   # Factory implementation
+│   ├── config/                 # Config implementations
+│   │   ├── config_parser.cpp  # XML parsing with pugixml
+│   │   ├── file_watcher.cpp   # Cross-platform file watching
+│   │   └── config_manager.cpp # Config lifecycle management
+│   └── main.cpp               # Demo application
+│
+├── config/                     # Configuration files
+│   └── tasks.xml              # Example task configuration
+│
+├── tests/                      # Comprehensive test suite
+│   ├── CMakeLists.txt         # Test build configuration
+│   ├── test_main.cpp          # GTest entry point
+│   ├── test_scheduler.cpp     # Scheduler functionality tests
+│   ├── test_state_machine.cpp # State machine logic tests
+│   ├── test_task_lifecycle.cpp # Task creation/deletion tests
+│   ├── test_config_updates.cpp # Dynamic config update tests
+│   ├── test_concurrency.cpp   # Thread safety & race condition tests
+│   └── test_lazy_deletion.cpp # Lazy deletion mechanism tests
+│
+└── docs/                       # Documentation
+    ├── ARCHITECTURE.md        # Detailed architecture documentation
+    ├── CONFIG_DRIVEN.md       # Config-driven feature documentation
+    └── TESTING_SUGGESTIONS.md # Additional test recommendations
 ```
+
+### Module Organization
+
+**Core Module (`core/`):**
+- Foundation of the framework - "the brain and center"
+- `task_base`: Template Method pattern, state machine implementation
+- `scheduler`: Thread pool, priority queue, task lifecycle
+- `types`: Shared data structures
+
+**Tasks Module (`tasks/`):**
+- Concrete task implementations demonstrating framework usage
+- `sensor_task`: Signal-focused monitoring task
+- `actuator_task`: Action-focused control task
+- `task_factory`: Creates tasks from configuration
+
+**Config Module (`config/`):**
+- Configuration-driven task management
+- `config_parser`: XML parsing and validation
+- `file_watcher`: Monitors configuration file changes
+- `config_manager`: Hot-reload with debouncing, task synchronization
 
 ## Requirements
 
@@ -110,7 +159,141 @@ ctest --verbose
 
 ## Usage
 
-### Creating Custom Tasks
+### Option 1: Configuration-Driven (Recommended)
+
+The framework supports XML-based configuration for dynamic task management with hot-reload capabilities.
+
+#### XML Configuration Format
+
+Create a configuration file (e.g., `config/tasks.xml`):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<TaskConfigurations>
+    <Task>
+        <taskName>TemperatureSensor</taskName>
+        <taskType>SensorTask</taskType>
+        <intervalMs>1000</intervalMs>
+        <sigTolerance>5</sigTolerance>
+        <sigRepeat>3</sigRepeat>
+        <allowSignal>true</allowSignal>
+        <actTolerance>10</actTolerance>
+        <actRepeat>0</actRepeat>
+        <allowAction>true</allowAction>
+    </Task>
+    
+    <Task>
+        <taskName>CoolingFan</taskName>
+        <taskType>ActuatorTask</taskType>
+        <intervalMs>500</intervalMs>
+        <sigTolerance>3</sigTolerance>
+        <sigRepeat>0</sigRepeat>
+        <allowSignal>true</allowSignal>
+        <actTolerance>5</actTolerance>
+        <actRepeat>2</actRepeat>
+        <allowAction>true</allowAction>
+    </Task>
+</TaskConfigurations>
+```
+
+#### Using ConfigManager
+
+```cpp
+#include "core/scheduler.h"
+#include "config/config_manager.h"
+
+// Create scheduler
+task_scheduler::Scheduler scheduler(4);
+
+// Create ConfigManager with 1-minute debounce window
+task_scheduler::ConfigManager configManager(
+    scheduler, 
+    "config/tasks.xml",
+    std::chrono::minutes(1)
+);
+
+// Start config-driven management
+if (configManager.start()) {
+    std::cout << "ConfigManager started successfully\n";
+    std::cout << "Watching: config/tasks.xml\n";
+    std::cout << "Loaded " << configManager.getTaskCount() << " tasks\n";
+}
+
+// Tasks are now running and automatically synchronized with config file
+// Modify tasks.xml and changes will be applied after debounce window
+
+// Run your application...
+std::this_thread::sleep_for(std::chrono::minutes(5));
+
+// Clean shutdown
+configManager.stop();
+```
+
+#### ConfigManager Features
+
+**Hot-Reload:**
+- Monitors configuration file for changes
+- Applies updates automatically after debounce window
+- No application restart required
+
+**Debounce Window:**
+- Prevents rapid successive updates
+- Configurable delay (default: 5 minutes)
+- Single atomic update after window expires
+
+**Task Synchronization:**
+- **Add**: New tasks in XML are automatically created
+- **Update**: Modified task parameters are updated in-place
+- **Remove**: Tasks removed from XML are stopped and deleted
+
+**Error Handling:**
+- Invalid XML → keeps existing tasks running
+- Unknown task types → skipped with warning
+- Missing required fields → validation error logged
+
+#### XML Configuration Reference
+
+| Field | Required | Type | Default | Description |
+|-------|----------|------|---------|-------------|
+| `taskName` | Yes | string | - | Unique task identifier |
+| `taskType` | Yes | string | - | "SensorTask" or "ActuatorTask" |
+| `intervalMs` | Yes | int | - | Execution interval (milliseconds) |
+| `sigTolerance` | No | int | 10 | Signal activation threshold |
+| `sigRepeat` | No | int | 0 | Signal heartbeat interval (0=single-shot) |
+| `allowSignal` | No | bool | true | Signal channel enable/disable |
+| `actTolerance` | No | int | 10 | Action activation threshold |
+| `actRepeat` | No | int | 0 | Action heartbeat interval (0=single-shot) |
+| `allowAction` | No | bool | true | Action channel enable/disable |
+
+#### Example: Hot-Reload Workflow
+
+```bash
+# 1. Start application with ConfigManager
+./build/src/main
+
+# 2. Edit config/tasks.xml while app is running
+#    - Change intervalMs from 1000 to 500
+#    - Add new task
+#    - Remove old task
+
+# 3. Save file
+
+# 4. Wait for debounce window (e.g., 1 minute)
+
+# 5. ConfigManager automatically:
+#    - Detects file change
+#    - Parses updated XML
+#    - Synchronizes tasks (add/update/remove)
+#    - Logs changes to console
+
+# Application continues running with new configuration!
+```
+
+### Option 2: Programmatic Task Creation
+
+For scenarios requiring dynamic task creation or custom task types:
+
+#### Creating Custom Tasks
 
 ```cpp
 #include "task_base.h"
